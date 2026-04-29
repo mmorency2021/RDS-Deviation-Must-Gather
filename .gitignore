@@ -1,0 +1,37 @@
+# Must-gather payloads (add under CU/extracted/ and DU/extracted/ locally; do not commit)
+CU/extracted/**
+!CU/extracted/.gitkeep
+DU/extracted/**
+!DU/extracted/.gitkeep
+
+# Regenerated pipeline outputs
+CU/cluster-compare-report.json
+CU/cluster-compare-report.yaml
+CU/cluster-compare-report.md
+CU/cluster-compare-stderr.log
+CU/cluster-compare-dashboard-detailed.html
+CU/vCU-RDS-compliance-dashboard.html
+
+DU/cluster-compare-report.json
+DU/cluster-compare-report.yaml
+DU/cluster-compare-report.md
+DU/cluster-compare-stderr.log
+DU/cluster-compare-dashboard-detailed.html
+DU/vDU-RDS-compliance-dashboard.html
+DU/du-vs-blueprint-report.md
+DU/du-vs-blueprint-report.html
+DU/du-vs-blueprint-dashboard.html
+
+report.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
