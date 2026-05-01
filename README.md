@@ -1,204 +1,219 @@
 # RDS-Deviation-Must-Gather
 
-OpenShift **must-gather** analysis for **RDS (RAN DU / CU) deviation** reporting: **kube-compare** (`cluster_compare`) against the telco-reference bundle, plus HTML/Markdown dashboards and optional **OMC** validation.
+OpenShift **must-gather** analysis for **RDS compliance deviation** reporting: **kube-compare** (`cluster_compare`) against the [telco-reference](https://github.com/openshift-kni/telco-reference) bundle, plus interactive HTML/Markdown dashboards and optional **OMC** validation.
 
-Originally developed as the RAN Gather cluster-compare dashboard workflow (vCU / vDU).
-
-This workspace builds **RDS compliance HTML and Markdown reports** from OpenShift **must-gather** using **`kubectl cluster_compare`** (kube-compare) against the **telco-reference** `kube-compare-reference` bundle.
-
-| Site | Folder | Tag | Dashboard builders |
-|------|--------|-----|---------------------|
-| Central unit (CU) | `CU/` | **vCU** | `CU/build-cu-dashboard.py` |
-| Distributed unit (DU) | `DU/` | **vDU** | `DU/build-du-dashboard.py` |
-
-The main automation entrypoint is **`run-cluster-compare-pipeline.sh`**: it runs cluster-compare, then the Python dashboard for each site you select.
+Supports three telco profiles: **RAN** (vDU), **CORE**, and **HUB**.
 
 ---
 
-## Prerequisites
+## Web Application
 
-1. **Kubernetes compare tool** — one of:
-   - `kubectl` with the **`cluster_compare`** plugin, or
-   - A standalone kube-compare binary (e.g. v0.12+ if your plugin lacks features such as `lookupCRs`):
+A **Flask web application** provides browser-based must-gather analysis with automatic cluster version detection and reference branch matching.
 
-     ```bash
-     export CLUSTER_COMPARE_BIN=/path/to/kubectl-cluster_compare
-     ```
+### Pipeline Flow
 
-2. **Python 3** with **PyYAML** (for reading ClusterVersion from must-gather):
+```mermaid
+flowchart TD
+    A([User uploads must-gather .tar.gz]) --> B{Select profile}
+    B -->|RAN| C[Extract archive]
+    B -->|CORE| C
+    B -->|HUB| C
 
-   ```bash
-   pip install pyyaml
-   ```
+    C --> D[Discover payload root]
+    D --> E{quay-io-* dir exists?}
+    E -->|Yes| F[Use quay-io-* directory]
+    E -->|No| G[Use first subdirectory]
+    F --> H[Detect cluster version]
+    G --> H
 
-3. **Optional — OMC** (OpenShift Must-gather Client): if `omc` is on `PATH` or **`OMC_PATH`** is set, the dashboards embed an **OMC validation** section against `extracted/`.
+    H --> I["Parse clusterversions/version.yaml"]
+    I --> J["Resolve OCP minor version (e.g. 4.20)"]
 
----
+    J --> K["Clone telco-reference branch\n(release-{minor})"]
+    K --> L["Select profile metadata.yaml"]
 
-## Reference bundle (`metadata.yaml`)
+    L --> M{Profile}
+    M -->|RAN| N["telco-ran/.../metadata.yaml"]
+    M -->|CORE| O["telco-core/.../metadata.yaml"]
+    M -->|HUB| P["telco-hub/.../metadata.yaml"]
 
-The pipeline compares your must-gather to a **telco-reference** kube-compare bundle.
+    N --> Q["Run kubectl cluster_compare"]
+    O --> Q
+    P --> Q
 
-**Default** (relative to this repo):
+    Q --> R["cluster-compare-report.json\ncluster-compare-report.yaml"]
+    R --> S{OMC available?}
+    S -->|Yes| T["Run OMC validation\n(omc use + get clusterversion)"]
+    S -->|No| U[Skip OMC]
+    T --> V[Build dashboard]
+    U --> V
 
-```text
-DU/telco-reference-release-4.20/telco-ran/configuration/kube-compare-reference/metadata.yaml
+    V --> W["HTML dashboard\n(self-contained, dark/light)"]
+    V --> X["Markdown report"]
+    V --> Y["JSON / YAML raw output"]
+
+    W --> Z([User views / downloads results])
+    X --> Z
+    Y --> Z
+
+    style A fill:#1565c0,color:#fff,stroke:#0d47a1
+    style Z fill:#388e3c,color:#fff,stroke:#2e7d32
+    style B fill:#6a1b9a,color:#fff,stroke:#4a148c
+    style M fill:#6a1b9a,color:#fff,stroke:#4a148c
+    style S fill:#e65100,color:#fff,stroke:#bf360c
+    style E fill:#e65100,color:#fff,stroke:#bf360c
+    style Q fill:#c62828,color:#fff,stroke:#b71c1c
 ```
 
-Override when needed:
+### Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| **Python 3.9+** | Tested on 3.9 (RHEL 9 / macOS), 3.11, and 3.12 |
+| **git** | Used to clone the telco-reference repo (must be on PATH) |
+| **kubectl-cluster_compare** | Auto-downloaded on first run if not found (see below) |
+| **omc** *(optional)* | [OpenShift Must-gather Client](https://github.com/gmeghnag/omc) for extra cluster validation |
+
+**kubectl-cluster_compare** is resolved in this order:
+
+1. `CLUSTER_COMPARE_BIN` environment variable (explicit path)
+2. `kubectl-cluster_compare` on PATH
+3. `/tmp/kubectl-cluster_compare` (previously auto-downloaded)
+4. **Auto-download** — the app fetches the correct binary for your OS/architecture from [GitHub releases](https://github.com/openshift/kube-compare/releases) (macOS arm64, macOS amd64, Linux amd64, Linux arm64)
+
+### Quick start (local)
 
 ```bash
-export REFERENCE_METADATA=/absolute/path/to/kube-compare-reference/metadata.yaml
+# 1. Clone the repository
+git clone https://github.com/mmorency2021/RDS-Deviation-Must-Gather.git
+cd RDS-Deviation-Must-Gather
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Start the web application
+python run.py
 ```
 
-If this file is missing, the pipeline exits with an error before running compare.
+The server starts on **http://localhost:5001**. On first run, if `kubectl-cluster_compare` is not found, it will be downloaded automatically for your platform.
 
----
+### How to use
 
-## Step-by-step procedure
+1. Open **http://localhost:5001** in your browser
+2. Choose a source:
+   - **Local path** *(default)* — paste the full path to a must-gather archive on your machine (any size, no upload needed)
+   - **Upload** — upload a `.tar.gz` through the browser (up to 6 GB)
+3. Select a profile: **RAN** (vDU), **CORE**, or **HUB**
+4. Click **Analyse**
+5. The status page shows live progress through each pipeline step
+6. When complete, view the interactive HTML dashboard or download reports
 
-### 1. Extract must-gather
+### Output files
 
-Each site keeps its own extract under **`CU/extracted/`** or **`DU/extracted/`**.
-
-```bash
-# Example: from repository root
-mkdir -p CU/extracted DU/extracted
-
-# Unpack your archives (adjust format/path to your files)
-tar -xf /path/to/must-gather-vcu.tar -C CU/extracted
-tar -xf /path/to/must-gather-du.tar  -C DU/extracted
-```
-
-You should have at least **one subdirectory** under `extracted/` (often a **`quay-io-*`** tree). Under that payload, OpenShift must-gather normally includes **`cluster-scoped-resources/`** and **`namespaces/`**. The pipeline uses those paths with **recursive** compare so nested CR YAML is included.
-
----
-
-### 2. Run the pipeline
-
-From the **repository root** (`RDS-Deviation-Must-Gather`):
-
-```bash
-chmod +x run-cluster-compare-pipeline.sh   # once, if needed
-
-./run-cluster-compare-pipeline.sh cu    # vCU only (CU/)
-./run-cluster-compare-pipeline.sh du    # vDU only (DU/)
-./run-cluster-compare-pipeline.sh all   # both CU and DU
-```
-
-**What it does for each selected site** (`CU/` or `DU/`):
-
-1. **Resolves** must-gather under `extracted/` (prefers a `quay-io-*` directory).
-2. **Runs cluster-compare** with `-r "$REFERENCE_METADATA"` and:
-   - If `cluster-scoped-resources` and `namespaces` exist under the payload:  
-     `-f .../cluster-scoped-resources -f .../namespaces -R`
-   - Otherwise: falls back to `-f <payload-root>` (with a warning).
-3. **Writes** in that site folder:
-   - `cluster-compare-report.json`
-   - `cluster-compare-report.yaml`
-   - `cluster-compare-stderr.log` (stderr from the compare tool)
-4. **Runs** `python3 build-cu-dashboard.py` or `python3 build-du-dashboard.py` in that folder.
-
-A non-zero cluster-compare exit code **may still produce usable JSON**; check `cluster-compare-stderr.log` if you see warnings.
-
----
-
-### 3. Outputs (what to open)
-
-Artifacts are written **inside `CU/` or `DU/`**.
-
-#### CU (vCU)
+Each analysis job produces the following under `.tmp/jobs/<job-id>/`:
 
 | File | Description |
 |------|-------------|
-| `cluster-compare-report.json` | Source data for the dashboard (counts, diffs, validation). |
-| `cluster-compare-report.yaml` | Same report in YAML. |
-| `cluster-compare-dashboard-detailed.html` | Full interactive dashboard. |
-| `vCU-RDS-compliance-dashboard.html` | Same HTML as above; **vCU-tagged** filename for sharing. |
-| `cluster-compare-report.md` | Markdown report aligned with the HTML sections. |
+| `dashboard.html` | Self-contained interactive HTML dashboard (dark/light mode, search, filters) |
+| `report.md` | Markdown compliance report with all sections |
+| `cluster-compare-report.json` | Raw kube-compare JSON output |
+| `cluster-compare-report.yaml` | Raw kube-compare YAML output |
+| `extracted/` | Extracted must-gather contents |
 
-#### DU (vDU)
+### Features
 
-| File | Description |
-|------|-------------|
-| `cluster-compare-report.json` | Source data for the dashboard. |
-| `cluster-compare-report.yaml` | Same report in YAML. |
-| `cluster-compare-dashboard-detailed.html` | Full interactive dashboard. |
-| `vDU-RDS-compliance-dashboard.html` | Same HTML as above; **vDU-tagged** filename for sharing. |
-| `cluster-compare-report.md` | Markdown report aligned with the HTML sections. |
+- Upload a must-gather `.tar.gz` (with drag & drop and progress bar) or point to a local file path
+- Select profile: **RAN** (vDU), **CORE**, or **HUB**
+- Auto-detects OpenShift cluster version from the must-gather archive
+- Fetches the matching `release-{minor}` branch from [openshift-kni/telco-reference](https://github.com/openshift-kni/telco-reference)
+- Auto-downloads `kubectl-cluster_compare` for the correct OS/architecture
+- Runs `kubectl cluster_compare` against the profile-specific reference bundle
+- Runs OMC validation (if [omc](https://github.com/gmeghnag/omc) is available)
+- Generates self-contained HTML dashboard + Markdown report
+- Download HTML, Markdown, or raw JSON output
+- Dark/light mode theme toggle
+- **SQLite-backed job persistence** — all jobs survive server and container restarts
+- Recent jobs table with **filtering** (by text, profile, version, status) and **sortable columns** (click any header to toggle asc/desc)
+- Inline partner name editing (double-click to rename a job for easy identification)
 
-Open locally with your browser, for example:
+### Webapp environment variables
 
-```text
-file:///path/to/RDS-Deviation-Must-Gather/CU/vCU-RDS-compliance-dashboard.html
-file:///path/to/RDS-Deviation-Must-Gather/DU/vDU-RDS-compliance-dashboard.html
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLUSTER_COMPARE_BIN` | *(auto-detected)* | Path to `kubectl-cluster_compare` binary |
+| `OMC_PATH` | *(auto-detected)* | Path to the `omc` binary |
+| `MAX_UPLOAD_MB` | `6144` | Maximum upload size in MB |
+| `FLASK_SECRET_KEY` | `rds-dev-key-change-in-prod` | Flask session secret key |
 
----
-
-## Manual run (without the shell pipeline)
-
-If you already have **`cluster-compare-report.json`** in the right place:
+### Running on RHEL / Fedora
 
 ```bash
-cd CU && python3 build-cu-dashboard.py
-cd DU && python3 build-du-dashboard.py
+# Install Python and git
+sudo dnf install -y python3 python3-pip git
+
+# Clone and run
+git clone https://github.com/mmorency2021/RDS-Deviation-Must-Gather.git
+cd RDS-Deviation-Must-Gather
+pip3 install -r requirements.txt
+python3 run.py
+# kubectl-cluster_compare is auto-downloaded for linux/amd64 on first run
 ```
 
-To produce JSON yourself, mirror the **`run_kube_compare`** logic in `run-cluster-compare-pipeline.sh`: same `-r metadata.yaml` and **`-f cluster-scoped-resources -f namespaces -R`** when those directories exist under the must-gather payload.
+### Running on macOS
 
----
+```bash
+# Python 3 and git are typically pre-installed, or:
+brew install python git
 
-## Environment variables
+git clone https://github.com/mmorency2021/RDS-Deviation-Must-Gather.git
+cd RDS-Deviation-Must-Gather
+pip3 install -r requirements.txt
+python3 run.py
+# kubectl-cluster_compare is auto-downloaded for darwin/arm64 (Apple Silicon) or darwin/amd64
+```
 
-| Variable | Purpose |
-|----------|---------|
-| `REFERENCE_METADATA` | Path to `kube-compare-reference/metadata.yaml` (defaults to the path under `DU/telco-reference-release-4.20/...`). |
-| `CLUSTER_COMPARE_BIN` | If set, this executable is used instead of `kubectl cluster_compare`. |
-| `OMC_PATH` | Optional path to the `omc` binary for the OMC section in dashboards. |
+### Data persistence (SQLite)
 
----
+Job metadata is stored in a **local SQLite database** at `.tmp/jobs.db`. This means:
 
-## Refresh after new data
+- All jobs (including in-progress ones) **survive server restarts** — no data loss on reboot or crash
+- The recent jobs table on the home page always shows your full history
+- Partner names, profiles, versions, and statuses are all persisted
+- No external database server needed — SQLite is built into Python
 
-1. Update or replace **`CU/extracted/`** and/or **`DU/extracted/`** with the new must-gather.
-2. Run **`./run-cluster-compare-pipeline.sh cu`**, **`du`**, or **`all`** again.
-3. Re-open the HTML files listed above.
+On first startup after upgrading from the in-memory store, existing completed jobs are automatically migrated from disk (`job-meta.json` files) into the database.
+
+### Container deployment (Podman / Docker)
+
+The container image bundles all dependencies — no local setup needed.
+
+```bash
+# Build
+podman build -t rds-webapp -f Containerfile .
+
+# Run (ephemeral — data lost on container restart)
+podman run -p 5001:5001 rds-webapp
+
+# Run with persistent storage (recommended for production)
+podman run -p 5001:5001 -v rds-data:/app/.tmp rds-webapp
+
+# With a local must-gather directory mounted (to use local path mode):
+podman run -p 5001:5001 -v rds-data:/app/.tmp -v /path/to/must-gathers:/data:ro rds-webapp
+# Then use /data/your-must-gather.tar.gz as the local path in the UI
+```
+
+The `-v rds-data:/app/.tmp` mount persists the SQLite database, job outputs, and reference cache across container restarts. Without it, all data is lost when the container stops.
+
+The container image includes `kubectl`, `kubectl-cluster_compare`, `omc`, `git`, and Python with all dependencies.
 
 ---
 
 ## Troubleshooting
 
 | Problem | What to check |
-|--------|----------------|
-| Compare JSON looks empty or CR counts are far too low | Ensure compare uses **`cluster-scoped-resources`** + **`namespaces`** with **`-R`** as in the pipeline; pointing only at the top of `quay-io-*` without walking namespaces often yields almost no YAML. |
-| `cluster-compare` exits non-zero | Read **`cluster-compare-stderr.log`**; JSON may still be valid. |
-| Plugin too old / missing features | Set **`CLUSTER_COMPARE_BIN`** to a newer **`kubectl-cluster_compare`**. |
-| No OMC block in HTML | Install **`omc`** or set **`OMC_PATH`**; ensure **`extracted/`** contains a valid must-gather layout. |
-| PyYAML errors | `pip install pyyaml`. |
-
----
-
-## Script reference
-
-| Script | Role |
-|--------|------|
-| `run-cluster-compare-pipeline.sh` | End-to-end: cluster-compare → `cluster-compare-report.json` → dashboard HTML + MD for **CU** and/or **DU**. |
-| `CU/build-cu-dashboard.py` | Reads `CU/cluster-compare-report.json`, writes HTML + MD (**vCU** branded copy). |
-| `DU/build-du-dashboard.py` | Reads `DU/cluster-compare-report.json`, writes HTML + MD (**vDU** branded copy). |
-
----
-
-## Quick command cheat sheet
-
-```bash
-cd /path/to/RDS-Deviation-Must-Gather
-
-# Full flow for both sites
-./run-cluster-compare-pipeline.sh all
-
-# Optional overrides
-export REFERENCE_METADATA=/path/to/metadata.yaml
-export CLUSTER_COMPARE_BIN=/path/to/kubectl-cluster_compare
-./run-cluster-compare-pipeline.sh du
-```
+|---------|---------------|
+| `kubectl-cluster_compare` not found | Auto-downloaded on first run; or set `CLUSTER_COMPARE_BIN=/path/to/binary` |
+| `exec format error` from kube-compare | Wrong architecture binary on PATH; the app auto-downloads the correct one for your OS/arch |
+| `git clone` fails for telco-reference | Check internet connectivity; stale cache is auto-cleaned |
+| No OMC section in dashboard | Install [omc](https://github.com/gmeghnag/omc) or set `OMC_PATH`; optional feature |
+| Jobs disappear after restart | Should not happen with SQLite; check `.tmp/jobs.db` exists |

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}RDS Compliance Tool{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="top-bar">
+  <a href="{{ url_for('main.index') }}" class="brand">RDS Compliance</a>
+  <span class="brand-sub">telco reference &middot; cluster-compare</span>
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">&#9681;</button>
+</header>
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+<footer class="bottom-bar">
+  <span>OpenShift RDS deviation must-gather analysis</span>
+</footer>
+<script>
+function toggleTheme(){
+  const h=document.documentElement;
+  h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';
+  localStorage.setItem('theme',h.dataset.theme);
+}
+(function(){const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t;})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

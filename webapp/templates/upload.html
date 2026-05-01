@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}Upload Must-Gather — RDS Compliance{% endblock %}
+
+{% block content %}
+<section class="card upload-card">
+  <h1>Upload Must-Gather</h1>
+  <p class="subtitle">Upload an OpenShift must-gather archive to analyse RDS compliance against the telco reference bundle.</p>
+
+  <form id="analyse-form" method="post" action="{{ url_for('main.upload') }}" enctype="multipart/form-data" class="upload-form">
+    <div class="form-group">
+      <label>Source</label>
+      <div class="radio-group">
+        <label class="radio-card">
+          <input type="radio" name="source" value="path" checked onchange="toggleSource()">
+          <span class="radio-label">Local path</span>
+          <span class="radio-desc">File already on this machine</span>
+        </label>
+        <label class="radio-card">
+          <input type="radio" name="source" value="upload" onchange="toggleSource()">
+          <span class="radio-label">Upload</span>
+          <span class="radio-desc">Upload via browser</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group" id="path-group">
+      <label for="filepath">File path</label>
+      <input type="text" id="filepath" name="filepath" placeholder="/path/to/must-gather.tar.gz" class="text-input">
+      <span class="hint">Absolute path to .tar.gz on this machine (no size limit)</span>
+    </div>
+
+    <div class="form-group" id="upload-group" style="display:none">
+      <label for="mustgather">Must-gather archive</label>
+      <div class="file-drop-zone" id="drop-zone">
+        <input type="file" id="mustgather" name="mustgather" accept=".tar.gz,.tgz,.tar,.gz,application/gzip,application/x-gzip,application/x-tar,application/x-compressed-tar">
+        <p class="drop-text">Choose a file or drag &amp; drop here</p>
+        <p class="drop-file-name" id="file-name-display"></p>
+      </div>
+      <span class="hint">Accepts .tar.gz, .tgz, or .tar (max 6 GB)</span>
+    </div>
+
+    <div class="form-group">
+      <label for="partner_name">Partner name <span class="hint-inline">(optional — helps identify the job later)</span></label>
+      <input type="text" id="partner_name" name="partner_name" placeholder="e.g. Acme Corp — cluster-prod-01" class="text-input">
+    </div>
+
+    <div class="form-group">
+      <label>Profile</label>
+      <div class="radio-group">
+        <label class="radio-card">
+          <input type="radio" name="profile" value="RAN" checked>
+          <span class="radio-label">RAN (vDU)</span>
+          <span class="radio-desc">Telco RAN distributed unit</span>
+        </label>
+        <label class="radio-card">
+          <input type="radio" name="profile" value="CORE">
+          <span class="radio-label">CORE</span>
+          <span class="radio-desc">Telco core site</span>
+        </label>
+        <label class="radio-card">
+          <input type="radio" name="profile" value="HUB">
+          <span class="radio-label">HUB</span>
+          <span class="radio-desc">Telco hub / management cluster</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="upload-progress hidden" id="upload-progress">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <p class="progress-text" id="progress-text">Uploading… 0%</p>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="submit-btn">Analyse</button>
+  </form>
+
+<script>
+function toggleSource(){
+  var isPath=document.querySelector('input[name="source"][value="path"]').checked;
+  document.getElementById('path-group').style.display=isPath?'':'none';
+  document.getElementById('upload-group').style.display=isPath?'none':'';
+}
+
+/* --- File picker: show name + size --- */
+var fileInput=document.getElementById('mustgather');
+var nameDisplay=document.getElementById('file-name-display');
+fileInput.addEventListener('change',function(){
+  if(fileInput.files.length){
+    var f=fileInput.files[0];
+    var sz=f.size>1073741824?(f.size/1073741824).toFixed(1)+' GB':(f.size/1048576).toFixed(0)+' MB';
+    nameDisplay.textContent=f.name+' ('+sz+')';
+  } else { nameDisplay.textContent=''; }
+});
+
+/* --- Drag & drop --- */
+var dropZone=document.getElementById('drop-zone');
+['dragenter','dragover'].forEach(function(e){
+  dropZone.addEventListener(e,function(ev){ev.preventDefault();ev.stopPropagation();dropZone.classList.add('drag-over');});
+});
+['dragleave','drop'].forEach(function(e){
+  dropZone.addEventListener(e,function(ev){ev.preventDefault();ev.stopPropagation();dropZone.classList.remove('drag-over');});
+});
+dropZone.addEventListener('drop',function(ev){
+  if(ev.dataTransfer.files.length){fileInput.files=ev.dataTransfer.files;fileInput.dispatchEvent(new Event('change'));}
+});
+
+/* --- XHR upload with progress bar --- */
+document.getElementById('analyse-form').addEventListener('submit',function(ev){
+  var isUpload=document.querySelector('input[name="source"][value="upload"]').checked;
+  if(!isUpload) return; /* local path uses normal form submit */
+
+  ev.preventDefault();
+  var form=this;
+  var fd=new FormData(form);
+  var xhr=new XMLHttpRequest();
+  var bar=document.getElementById('upload-progress');
+  var fill=document.getElementById('progress-fill');
+  var txt=document.getElementById('progress-text');
+  var btn=document.getElementById('submit-btn');
+
+  bar.classList.remove('hidden');
+  btn.disabled=true;
+  btn.textContent='Uploading…';
+
+  xhr.upload.addEventListener('progress',function(e){
+    if(e.lengthComputable){
+      var pct=Math.round(e.loaded*100/e.total);
+      fill.style.width=pct+'%';
+      var loaded=e.loaded>1073741824?(e.loaded/1073741824).toFixed(1)+' GB':(e.loaded/1048576).toFixed(0)+' MB';
+      var total=e.total>1073741824?(e.total/1073741824).toFixed(1)+' GB':(e.total/1048576).toFixed(0)+' MB';
+      txt.textContent='Uploading… '+pct+'%  ('+loaded+' / '+total+')';
+    }
+  });
+  xhr.addEventListener('load',function(){
+    if(xhr.status>=200 && xhr.status<400){
+      txt.textContent='Upload complete — redirecting…';
+      fill.style.width='100%';
+      window.location.href=xhr.responseURL;
+    } else {
+      txt.textContent='Upload failed (HTTP '+xhr.status+'). Please try again.';
+      fill.style.width='0%';
+      fill.classList.add('progress-error');
+      btn.disabled=false;
+      btn.textContent='Analyse';
+    }
+  });
+  xhr.addEventListener('error',function(){
+    txt.textContent='Upload failed — network error. Check connection and try again.';
+    fill.classList.add('progress-error');
+    btn.disabled=false;
+    btn.textContent='Analyse';
+  });
+  xhr.open('POST',form.action,true);
+  xhr.send(fd);
+});
+
+</script>
+</section>
+
+{% if recent_jobs %}
+<section class="card">
+  <h2>Recent Jobs</h2>
+  <div class="filter-bar">
+    <input type="search" id="job-filter" placeholder="Search by name, ID, version…" class="filter-input" autocomplete="off">
+    <select id="filter-profile" class="filter-select">
+      <option value="">All profiles</option>
+      <option value="RAN">RAN</option>
+      <option value="CORE">CORE</option>
+      <option value="HUB">HUB</option>
+    </select>
+    <select id="filter-status" class="filter-select">
+      <option value="">All statuses</option>
+      <option value="done">Complete</option>
+      <option value="error">Error</option>
+      <option value="pending">In progress</option>
+    </select>
+    <span class="filter-count" id="filter-count"></span>
+  </div>
+  <table class="jobs-table" id="jobs-table">
+    <thead>
+      <tr>
+        <th class="sortable" data-col="0">Partner name</th>
+        <th>Job ID</th>
+        <th class="sortable" data-col="2">Date</th>
+        <th class="sortable" data-col="3">Profile</th>
+        <th class="sortable" data-col="4">Version</th>
+        <th class="sortable" data-col="5">Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for j in recent_jobs %}
+      <tr data-profile="{{ j.profile }}" data-status="{{ j.status.value }}">
+        <td class="partner-cell">
+          <span class="partner-display" id="pname-{{ j.id }}" ondblclick="editPartner('{{ j.id }}')">{{ j.partner_name or '—' }}</span>
+          <input type="text" class="partner-edit hidden" id="pedit-{{ j.id }}" value="{{ j.partner_name }}"
+                 onblur="savePartner('{{ j.id }}')" onkeydown="if(event.key==='Enter')this.blur();"
+                 placeholder="double-click to set">
+        </td>
+        <td><code>{{ j.id }}</code></td>
+        <td class="date-cell">{{ j.created_local }}</td>
+        <td>{{ j.profile }}</td>
+        <td>{{ j.ocp_version or '—' }}</td>
+        <td>
+          <span class="badge badge-{{ j.status.value }}">{{ j.status.label }}</span>
+        </td>
+        <td>
+          {% if j.status.value == 'done' %}
+            <a href="{{ url_for('main.results', job_id=j.id) }}">View</a>
+          {% elif j.status.value == 'error' %}
+            <a href="{{ url_for('main.status', job_id=j.id) }}">Details</a>
+          {% else %}
+            <a href="{{ url_for('main.status', job_id=j.id) }}">Progress</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">Double-click a partner name to edit it.</p>
+</section>
+{% endif %}
+
+<script>
+/* --- Partner name inline edit --- */
+function editPartner(id){
+  document.getElementById('pname-'+id).classList.add('hidden');
+  var inp=document.getElementById('pedit-'+id);
+  inp.classList.remove('hidden');
+  inp.focus();
+  inp.select();
+}
+function savePartner(id){
+  var inp=document.getElementById('pedit-'+id);
+  var span=document.getElementById('pname-'+id);
+  var val=inp.value.trim();
+  fetch('/api/job/'+id+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({partner_name:val})})
+    .then(function(r){return r.json();})
+    .then(function(d){span.textContent=d.partner_name||'—';})
+    .catch(function(){});
+  inp.classList.add('hidden');
+  span.classList.remove('hidden');
+  span.textContent=val||'—';
+}
+
+/* --- Recent jobs filter --- */
+(function(){
+  var q=document.getElementById('job-filter');
+  var fp=document.getElementById('filter-profile');
+  var fs=document.getElementById('filter-status');
+  var count=document.getElementById('filter-count');
+  var table=document.getElementById('jobs-table');
+  if(!q||!table) return;
+  function applyFilter(){
+    var term=(q.value||'').toLowerCase();
+    var prof=fp.value;
+    var stat=fs.value;
+    var rows=table.querySelectorAll('tbody tr');
+    var shown=0, total=rows.length;
+    rows.forEach(function(tr){
+      var text=tr.textContent.toLowerCase();
+      var rProf=tr.getAttribute('data-profile');
+      var rStat=tr.getAttribute('data-status');
+      var matchText=!term||text.indexOf(term)!==-1;
+      var matchProf=!prof||rProf===prof;
+      var matchStat;
+      if(!stat) matchStat=true;
+      else if(stat==='pending') matchStat=(rStat!=='done'&&rStat!=='error');
+      else matchStat=rStat===stat;
+      if(matchText&&matchProf&&matchStat){tr.classList.remove('hidden');shown++;}
+      else{tr.classList.add('hidden');}
+    });
+    count.textContent=(term||prof||stat)?shown+' of '+total+' jobs':'';
+  }
+  q.addEventListener('input',applyFilter);
+  fp.addEventListener('change',applyFilter);
+  fs.addEventListener('change',applyFilter);
+})();
+
+/* --- Sortable columns (click header to toggle asc/desc) --- */
+(function(){
+  var table=document.getElementById('jobs-table');
+  if(!table) return;
+  var headers=table.querySelectorAll('th.sortable');
+  var sortState={};
+  headers.forEach(function(th){
+    th.addEventListener('click',function(){
+      var col=parseInt(th.getAttribute('data-col'));
+      var asc=sortState[col]===undefined?true:!sortState[col];
+      sortState[col]=asc;
+      var tbody=table.querySelector('tbody');
+      var rows=Array.from(tbody.querySelectorAll('tr'));
+      rows.sort(function(a,b){
+        var at=(a.children[col]||{}).textContent||'';
+        var bt=(b.children[col]||{}).textContent||'';
+        at=at.trim().toLowerCase();
+        bt=bt.trim().toLowerCase();
+        if(at<bt) return asc?-1:1;
+        if(at>bt) return asc?1:-1;
+        return 0;
+      });
+      rows.forEach(function(r){tbody.appendChild(r);});
+      headers.forEach(function(h){h.textContent=h.textContent.replace(/ [▲▼]$/,'');});
+      th.textContent=th.textContent+' '+(asc?'▲':'▼');
+    });
+  });
+})();
+</script>
+{% endblock %}
