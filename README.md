@@ -188,6 +188,10 @@ On first startup after upgrading from the in-memory store, existing completed jo
 The container image bundles all dependencies — no local setup needed.
 
 ```bash
+# Clone the repository
+git clone https://github.com/mmorency2021/RDS-Deviation-Must-Gather.git
+cd RDS-Deviation-Must-Gather
+
 # Build
 podman build -t rds-webapp -f Containerfile .
 
