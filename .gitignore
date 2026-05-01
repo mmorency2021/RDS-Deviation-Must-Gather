@@ -24,6 +24,9 @@ DU/du-vs-blueprint-dashboard.html
 
 report.json
 
+# Webapp working directory
+.tmp/
+
 # Python
 __pycache__/
 *.py[cod]

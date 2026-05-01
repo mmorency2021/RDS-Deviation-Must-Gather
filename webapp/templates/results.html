@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Results {{ job.id }} — RDS Compliance{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>{% if job.partner_name %}{{ job.partner_name }} — {% endif %}RDS Compliance Report</h1>
+  <p>
+    <strong>Profile:</strong> {{ job.profile }} &nbsp;
+    <strong>OpenShift:</strong> {{ job.ocp_version }} &nbsp;
+    <strong>Job:</strong> <code>{{ job.id }}</code>
+  </p>
+
+  <div class="actions">
+    <a href="{{ url_for('main.serve_dashboard', job_id=job.id) }}" class="btn btn-primary" target="_blank">Open Dashboard</a>
+    <a href="{{ url_for('main.download_html', job_id=job.id) }}" class="btn">Download HTML</a>
+    <a href="{{ url_for('main.download_md', job_id=job.id) }}" class="btn">Download Markdown</a>
+    <a href="{{ url_for('main.download_json', job_id=job.id) }}" class="btn">Download JSON</a>
+  </div>
+</section>
+
+<section class="card dashboard-frame-wrapper">
+  <iframe src="{{ url_for('main.serve_dashboard', job_id=job.id) }}" class="dashboard-frame" title="RDS Dashboard"></iframe>
+</section>
+
+<p><a href="{{ url_for('main.index') }}">Upload another</a></p>
+{% endblock %}
