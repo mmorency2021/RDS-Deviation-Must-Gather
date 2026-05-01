@@ -2,7 +2,7 @@
 
 OpenShift **must-gather** analysis for **RDS compliance deviation** reporting: **kube-compare** (`cluster_compare`) against the [telco-reference](https://github.com/openshift-kni/telco-reference) bundle, plus interactive HTML/Markdown dashboards and optional **OMC** validation.
 
-Supports three telco profiles: **RAN** (vDU), **CORE**, and **HUB**.
+This web application supports three telco profiles: **RAN** (vDU), **CORE**, and **HUB**.
 
 ---
 
